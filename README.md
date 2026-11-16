@@ -27,6 +27,32 @@ produces byte-identical output. The file keeps its JPEG content; its magic
 bytes, not the `.png` name, identify the format. Errors are reported on stderr
 with exit code 1 and leave no partial file.
 
+### Output permissions
+
+`tempfile.mkstemp` always creates its file with mode `0600`, and the rename
+kept that mode, so an `entry.png` written by one user could not be read by a
+grader collecting it as a different user. `main.py` now runs
+`os.fchmod(fd, 0o644)` on the temporary file's descriptor before it is closed
+and renamed. `chmod` is not affected by the umask, so `entry.png` is `0644`
+even under `umask 077`. Neither the bytes nor the atomic rename change.
+
+### Runtime validation (exact limits)
+
+- `artwork.jpg` size: 1 to 1,048,576 bytes inclusive (checked both via
+  `stat` before reading and on the bytes actually read).
+- `artwork.jpg` must start with `FF D8` (SOI) and end with `FF D9` (EOI).
+- Output directory: `$MAKEFUN_OUTPUT_DIR`, or `/output` if unset or empty;
+  it must already exist (it is not created).
+- After the rename, `entry.png` is read back and must equal the artwork
+  byte-for-byte, and must be readable by other users (`r` bits for
+  user/group/other set); otherwise the run fails.
+- Exit code 0 on success; 1 with an `error:` line on stderr for any
+  validation or I/O failure.
+
+Locally tested on Linux (ext4) with Python 3.12.3: written as `nobody`
+under `umask 077` from a `git archive` tree and read back as a different
+user. Two runs gave identical bytes (SHA-256 above) and left no temp files.
+
 ## Run it
 
 ```sh

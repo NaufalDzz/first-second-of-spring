@@ -6,6 +6,7 @@ $MAKEFUN_OUTPUT_DIR/entry.png (default /output). The file's magic bytes,
 not its extension, identify the format. Standard library only.
 """
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -13,6 +14,9 @@ from pathlib import Path
 ASSET = Path(__file__).resolve().parent / "artwork.jpg"
 MAX_BYTES = 1048576
 OUTPUT_NAME = "entry.png"
+# World-readable so a grader running under a different UID can collect it.
+# mkstemp() always creates 0600; fchmod() is not affected by the umask.
+OUTPUT_MODE = 0o644
 
 
 def output_dir():
@@ -31,10 +35,15 @@ def load_artwork(path=ASSET):
 
 
 def write_atomic(target, data):
-    """Write via a temp file in the same directory, then rename into place."""
+    """Write via a temp file in the same directory, then rename into place.
+
+    The temp file is chmod'ed to OUTPUT_MODE through its descriptor before it
+    is closed and renamed, so the final file is never published as 0600.
+    """
     fd, tmp = tempfile.mkstemp(prefix=".entry-", suffix=".tmp", dir=target.parent)
     try:
         with os.fdopen(fd, "wb") as fh:
+            os.fchmod(fh.fileno(), OUTPUT_MODE)
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
@@ -44,6 +53,9 @@ def write_atomic(target, data):
         raise
     if target.read_bytes() != data:
         raise OSError(f"verification failed for {target}")
+    mode = stat.S_IMODE(target.stat().st_mode)
+    if mode & 0o444 != 0o444:
+        raise OSError(f"{target} has mode {mode:o}, not readable by other users")
 
 
 def main():
